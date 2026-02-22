@@ -1,0 +1,16 @@
+# Datasets and generated data (download UNSW-NB15 separately , see README)
+*.csv
+!results/results_summary.csv
+
+# Trained model artifacts (reproducible via train_xgboost.py)
+xgboost_model.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
