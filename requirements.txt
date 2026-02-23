@@ -1,0 +1,10 @@
+numpy
+pandas
+scikit-learn
+xgboost<2.0        # code uses use_label_encoder=, removed in xgboost 2.0
+imbalanced-learn
+matplotlib
+# Network enforcement demo (Mininet VM only):
+# ryu
+# eventlet==0.30.2
+# mininet (install via distro package / VM image)
