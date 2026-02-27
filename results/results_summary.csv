@@ -1,0 +1,4 @@
+class,precision,recall,f1,support
+Exploits,0.8574,0.9472,0.9,11132
+Normal,0.994,0.9655,0.9796,37000
+Reconnaissance,0.8662,0.8407,0.8532,3496
