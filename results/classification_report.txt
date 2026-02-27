@@ -1,0 +1,19 @@
+XGBoost Classifier — Test Set Evaluation
+==================================================
+
+Features used: ['sttl', 'dbytes', 'ct_srv_dst', 'smean', 'dmean', 'sbytes', 'ct_dst_src_ltm', 'swin', 'service', 'ct_srv_src', 'trans_depth', 'synack', 'tcprtt', 'response_body_len']
+
+Test set distribution:
+  Normal: 37,000
+  Exploits: 11,132
+  Reconnaissance: 3,496
+
+                precision    recall  f1-score   support
+
+      Exploits     0.8574    0.9472    0.9000     11132
+        Normal     0.9940    0.9655    0.9796     37000
+Reconnaissance     0.8662    0.8407    0.8532      3496
+
+      accuracy                         0.9531     51628
+     macro avg     0.9059    0.9178    0.9109     51628
+  weighted avg     0.9559    0.9531    0.9539     51628
