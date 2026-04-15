@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZeroSeg - Live Microsegmentation Monitor</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy:    #0F1E3C;
+    --navy2:   #162A52;
+    --navy3:   #1E3A6E;
+    --blue:    #3B7DD8;
+    --blue2:   #5B9BF8;
+    --green:   #10B981;
+    --green2:  #34D399;
+    --red:     #EF4444;
+    --red2:    #F87171;
+    --amber:   #F59E0B;
+    --amber2:  #FCD34D;
+    --white:   #F0F4FF;
+    --muted:   #8BA3CC;
+    --border:  rgba(255,255,255,0.07);
+    --card:    rgba(255,255,255,0.04);
+    --card2:   rgba(255,255,255,0.07);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--navy);
+    color: var(--white);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+  }
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(59,125,216,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(59,125,216,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none; z-index: 0;
+  }
+  .app { position: relative; z-index: 1; }
+
+  /* TOP BAR */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 28px; height: 56px;
+    background: rgba(15,30,60,0.97);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo-icon {
+    width: 30px; height: 30px;
+    background: linear-gradient(135deg, var(--blue), var(--green));
+    border-radius: 8px; display: flex; align-items: center;
+    justify-content: center; font-size: 14px; font-weight: 700; color: white;
+  }
+  .logo-text { font-size: 15px; font-weight: 600; }
+  .logo-sub { font-family: 'DM Mono',monospace; font-size: 9px; color: var(--muted); letter-spacing: 1.5px; }
+  .topbar-right { display: flex; align-items: center; gap: 20px; }
+  .stat-pill { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .stat-pill strong { font-family: 'DM Mono',monospace; font-size: 14px; font-weight: 500; }
+  .live-badge {
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(16,185,129,0.12);
+    border: 1px solid rgba(16,185,129,0.3);
+    border-radius: 20px; padding: 4px 12px;
+    font-size: 11px; font-weight: 600; color: var(--green); letter-spacing: 0.5px;
+  }
+  .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: blink 1.2s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+  /* CONNECTION STATUS */
+  .conn-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 28px;
+    background: rgba(245,158,11,0.08);
+    border-bottom: 1px solid rgba(245,158,11,0.2);
+    font-size: 11px; color: var(--amber2);
+    font-family: 'DM Mono', monospace;
+  }
+  .conn-bar.connected {
+    background: rgba(16,185,129,0.08);
+    border-bottom-color: rgba(16,185,129,0.2);
+    color: var(--green2);
+  }
+  .conn-bar.error {
+    background: rgba(239,68,68,0.08);
+    border-bottom-color: rgba(239,68,68,0.2);
+    color: var(--red2);
+  }
+  .conn-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+  /* LAYOUT */
+  .main {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    grid-template-rows: auto 1fr;
+    gap: 16px; padding: 16px 20px;
+    max-width: 1400px; margin: 0 auto;
+  }
+
+  /* STAT CARDS */
+  .stats-row {
+    grid-column: 1 / -1;
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px;
+  }
+  .stat-card {
+    background: var(--card2); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px 18px; position: relative; overflow: hidden;
+  }
+  .stat-card::before { content:''; position:absolute; top:0;left:0;right:0; height:2px; }
+  .stat-card.blue::before  { background: var(--blue); }
+  .stat-card.green::before { background: var(--green); }
+  .stat-card.red::before   { background: var(--red); }
+  .stat-card.amber::before { background: var(--amber); }
+  .stat-card .label { font-size:10px; font-weight:500; color:var(--muted); letter-spacing:.8px; text-transform:uppercase; margin-bottom:6px; }
+  .stat-card .value { font-family:'DM Mono',monospace; font-size:26px; font-weight:500; line-height:1; }
+  .stat-card.blue  .value { color: var(--blue2); }
+  .stat-card.green .value { color: var(--green2); }
+  .stat-card.red   .value { color: var(--red2); }
+  .stat-card.amber .value { color: var(--amber2); }
+  .stat-card .sub { font-size:10px; color:var(--muted); margin-top:4px; }
+
+  /* SIDEBAR */
+  .sidebar { display:flex; flex-direction:column; gap:14px; }
+  .card { background:var(--card2); border:1px solid var(--border); border-radius:14px; overflow:hidden; }
+  .card-header {
+    padding:14px 16px 10px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .card-title { font-size:11px; font-weight:600; letter-spacing:.8px; text-transform:uppercase; color:var(--muted); }
+
+  /* Segments */
+  .segments { padding:12px; display:flex; flex-direction:column; gap:8px; }
+  .segment-node {
+    background: var(--card); border:1px solid var(--border);
+    border-radius:10px; padding:12px 14px;
+    transition: border-color .3s, box-shadow .3s;
+    position:relative; overflow:hidden;
+  }
+  .segment-node::before {
+    content:''; position:absolute; left:0;top:0;bottom:0;
+    width:3px; border-radius:3px 0 0 3px;
+  }
+  .segment-node.seg0::before { background: var(--blue); }
+  .segment-node.seg1::before { background: var(--green); }
+  .segment-node.seg2::before { background: var(--red); }
+  .segment-node.pulse {
+    border-color: var(--red);
+    box-shadow: 0 0 0 2px rgba(239,68,68,0.25), 0 0 20px rgba(239,68,68,0.15);
+    animation: pulseAnim 0.5s ease;
+  }
+  @keyframes pulseAnim { 0%{transform:scale(1)} 50%{transform:scale(1.01)} 100%{transform:scale(1)} }
+  .seg-name { font-size:12px; font-weight:600; margin-bottom:4px; }
+  .seg-hosts { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); line-height:1.8; }
+  .seg-badge {
+    display:inline-block; font-size:9px; font-weight:600;
+    padding:2px 8px; border-radius:20px; margin-top:6px; letter-spacing:.3px;
+  }
+  .seg-badge.allowed { background:rgba(16,185,129,.15); color:var(--green2); }
+  .seg-badge.blocked { background:rgba(239,68,68,.15);  color:var(--red2); }
+  .seg-attacks {
+    font-family:'DM Mono',monospace; font-size:9px;
+    color:var(--red2); margin-top:4px; display:none;
+  }
+
+  /* Scores */
+  .scores { padding:12px; display:flex; flex-direction:column; gap:10px; }
+  .score-row { display:flex; align-items:center; gap:10px; }
+  .score-label { font-size:11px; font-weight:500; width:100px; flex-shrink:0; }
+  .score-bar-wrap { flex:1; height:6px; background:var(--card); border-radius:4px; overflow:hidden; }
+  .score-bar { height:100%; border-radius:4px; }
+  .score-val { font-family:'DM Mono',monospace; font-size:11px; width:40px; text-align:right; flex-shrink:0; }
+
+  /* Alert log */
+  .alert-entry {
+    padding:7px 10px;
+    background: rgba(239,68,68,0.08);
+    border:1px solid rgba(239,68,68,0.2);
+    border-radius:7px; margin-bottom:4px;
+    animation: fadeSlide .3s ease;
+  }
+  .alert-entry.recon { background:rgba(245,158,11,0.08); border-color:rgba(245,158,11,0.2); }
+  @keyframes fadeSlide { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+
+  /* Main panel */
+  .main-panel { display:flex; flex-direction:column; gap:14px; min-width:0; }
+
+  /* Alert banner */
+  .alert-banner {
+    display:none; align-items:center; gap:10px;
+    padding:11px 16px;
+    background:rgba(239,68,68,0.12);
+    border:1px solid rgba(239,68,68,0.35);
+    border-radius:10px; font-size:13px; color:var(--red2); font-weight:500;
+  }
+  .alert-banner.show { display:flex; animation: slideIn .3s ease; }
+  .alert-banner.amber-mode {
+    background:rgba(245,158,11,0.12);
+    border-color:rgba(245,158,11,0.35);
+    color:var(--amber2);
+  }
+  @keyframes slideIn { from{opacity:0;transform:translateX(-8px)} to{opacity:1;transform:translateX(0)} }
+
+  /* Timeline */
+  .timeline-wrap { padding:14px 16px; }
+  #timeline-canvas { width:100%; height:120px; display:block; }
+  .chart-legend { display:flex; gap:16px; margin-top:8px; }
+  .legend-item { display:flex; align-items:center; gap:6px; font-size:10px; color:var(--muted); }
+  .legend-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+
+  /* Flow table */
+  .table-header {
+    display:grid; grid-template-columns:50px 90px 90px 100px 90px 80px 80px;
+    padding:8px 16px; background:rgba(255,255,255,.03);
+    border-bottom:1px solid var(--border);
+  }
+  .th { font-size:9px; font-weight:600; color:var(--muted); letter-spacing:.8px; text-transform:uppercase; }
+  .table-body { overflow-y:auto; max-height:320px; }
+  .table-body::-webkit-scrollbar { width:3px; }
+  .table-body::-webkit-scrollbar-thumb { background:var(--navy3); border-radius:3px; }
+  .flow-row {
+    display:grid; grid-template-columns:50px 90px 90px 100px 90px 80px 80px;
+    padding:8px 16px; border-bottom:1px solid rgba(255,255,255,.03);
+    font-size:11px; align-items:center;
+    animation: fadeIn .25s ease;
+  }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(-3px)} to{opacity:1;transform:translateY(0)} }
+  .flow-row:hover { background:var(--card); }
+  .flow-row.attack { background:rgba(239,68,68,.04); }
+  .td { font-family:'DM Mono',monospace; font-size:10px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .td.ip { color:var(--white); }
+  .type-badge { display:inline-block; font-size:9px; font-weight:600; padding:2px 7px; border-radius:4px; letter-spacing:.3px; }
+  .type-badge.normal  { background:rgba(59,125,216,.15); color:var(--blue2); }
+  .type-badge.exploit { background:rgba(239,68,68,.18);  color:var(--red2); }
+  .type-badge.recon   { background:rgba(245,158,11,.18); color:var(--amber2); }
+  .verdict-badge { display:inline-block; font-size:9px; font-weight:600; padding:2px 8px; border-radius:4px; letter-spacing:.3px; }
+  .verdict-badge.allow { background:rgba(16,185,129,.15); color:var(--green2); }
+  .verdict-badge.block { background:rgba(239,68,68,.18);  color:var(--red2); }
+
+  /* Controls */
+  .controls {
+    display:flex; gap:8px; align-items:center;
+    padding:10px 16px; border-top:1px solid var(--border);
+  }
+  .btn {
+    padding:7px 16px; border-radius:8px; font-size:12px; font-weight:600;
+    font-family:'DM Sans',sans-serif; cursor:pointer; border:none;
+    transition:all .15s; letter-spacing:.3px;
+  }
+  .btn-primary { background:var(--blue); color:white; }
+  .btn-primary:hover { background:var(--blue2); }
+  .btn-ghost {
+    background:var(--card2); color:var(--muted);
+    border:1px solid var(--border);
+  }
+  .btn-ghost:hover { color:var(--white); border-color:var(--blue); }
+  .server-url {
+    font-family:'DM Mono',monospace; font-size:10px;
+    background:var(--card); border:1px solid var(--border);
+    color:var(--muted); padding:6px 10px; border-radius:6px;
+    width:220px; outline:none;
+  }
+  .server-url:focus { border-color:var(--blue); color:var(--white); }
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">Z</div>
+    <div>
+      <div class="logo-text">ZeroSeg</div>
+      <div class="logo-sub">LIVE MICROSEGMENTATION MONITOR</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="stat-pill">Flows <strong id="tb-total">0</strong></div>
+    <div class="stat-pill" style="color:var(--green2)">Allowed <strong id="tb-allowed" style="color:var(--green2)">0</strong></div>
+    <div class="stat-pill" style="color:var(--red2)">Blocked <strong id="tb-blocked" style="color:var(--red2)">0</strong></div>
+    <div class="live-badge"><div class="live-dot"></div>LIVE · MININET</div>
+  </div>
+</div>
+
+<!-- CONNECTION BAR -->
+<div class="conn-bar" id="conn-bar">
+  <div class="conn-dot"></div>
+  <span id="conn-text">Connecting to Ryu event server...</span>
+  <span style="margin-left:auto;opacity:0.6">Server: <span id="conn-url">http://192.168.74.139:5000</span></span>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- STATS ROW -->
+  <div class="stats-row">
+    <div class="stat-card blue">
+      <div class="label">Total Flows</div>
+      <div class="value" id="sc-total">0</div>
+      <div class="sub">processed by OpenFlow</div>
+    </div>
+    <div class="stat-card green">
+      <div class="label">Allowed</div>
+      <div class="value" id="sc-allowed">0</div>
+      <div class="sub">normal traffic</div>
+    </div>
+    <div class="stat-card red">
+      <div class="label">Blocked</div>
+      <div class="value" id="sc-blocked">0</div>
+      <div class="sub">attack flows</div>
+    </div>
+    <div class="stat-card amber">
+      <div class="label">Block Rate</div>
+      <div class="value" id="sc-rate">0%</div>
+      <div class="sub">of all flows</div>
+    </div>
+    <div class="stat-card red">
+      <div class="label">Exploits</div>
+      <div class="value" id="sc-exploit">0</div>
+      <div class="sub">detected &amp; blocked</div>
+    </div>
+    <div class="stat-card amber">
+      <div class="label">Recon</div>
+      <div class="value" id="sc-recon">0</div>
+      <div class="sub">detected &amp; blocked</div>
+    </div>
+  </div>
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+
+    <!-- Segment Map -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Segment Map</div>
+        <div style="font-size:9px;color:var(--muted);font-family:'DM Mono',monospace">DBSCAN · 29 clusters</div>
+      </div>
+      <div class="segments">
+        <div class="segment-node seg0" id="seg0">
+          <div class="seg-name" style="color:var(--blue2)">Segment 0: Normal</div>
+          <div class="seg-hosts">h1  10.0.0.1&#10;h2  10.0.0.2</div>
+          <span class="seg-badge allowed">INTRA: ALLOWED</span>
+          <div class="seg-attacks" id="seg0-attacks"></div>
+        </div>
+        <div class="segment-node seg1" id="seg1">
+          <div class="seg-name" style="color:var(--green2)">Segment 1: App</div>
+          <div class="seg-hosts">h3  10.0.1.1&#10;h4  10.0.1.2</div>
+          <span class="seg-badge allowed">INTRA: ALLOWED</span>
+          <div class="seg-attacks" id="seg1-attacks"></div>
+        </div>
+        <div class="segment-node seg2" id="seg2">
+          <div class="seg-name" style="color:var(--red2)">Segment 2: Attacker</div>
+          <div class="seg-hosts">h5  10.0.2.1&#10;h6  10.0.2.2</div>
+          <span class="seg-badge blocked">CROSS: BLOCKED</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- XGBoost Scores -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">XGBoost F1 Scores</div>
+        <div style="font-size:9px;color:var(--muted);font-family:'DM Mono',monospace">test set</div>
+      </div>
+      <div class="scores">
+        <div class="score-row">
+          <div class="score-label" style="color:var(--red2)">Exploits</div>
+          <div class="score-bar-wrap"><div class="score-bar" style="width:90%;background:var(--red)"></div></div>
+          <div class="score-val" style="color:var(--red2)">0.90</div>
+        </div>
+        <div class="score-row">
+          <div class="score-label" style="color:var(--green2)">Normal</div>
+          <div class="score-bar-wrap"><div class="score-bar" style="width:97.96%;background:var(--green)"></div></div>
+          <div class="score-val" style="color:var(--green2)">0.98</div>
+        </div>
+        <div class="score-row">
+          <div class="score-label" style="color:var(--amber2)">Reconnaissance</div>
+          <div class="score-bar-wrap"><div class="score-bar" style="width:85.32%;background:var(--amber)"></div></div>
+          <div class="score-val" style="color:var(--amber2)">0.85</div>
+        </div>
+        <div style="margin-top:4px;padding-top:8px;border-top:1px solid var(--border);">
+          <div class="score-row">
+            <div class="score-label" style="color:var(--blue2)">Overall Acc.</div>
+            <div class="score-bar-wrap"><div class="score-bar" style="width:95.31%;background:var(--blue)"></div></div>
+            <div class="score-val" style="color:var(--blue2)">95.3%</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Alert Log -->
+    <div class="card" style="flex:1">
+      <div class="card-header">
+        <div class="card-title">Alert Log</div>
+        <div id="alert-count" style="font-size:9px;color:var(--red2);font-family:'DM Mono',monospace">0 attacks</div>
+      </div>
+      <div id="alert-log" style="padding:8px;overflow-y:auto;max-height:210px;">
+        <div style="color:var(--muted);text-align:center;padding:20px 0;font-size:11px;">Waiting for attacks...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN PANEL -->
+  <div class="main-panel">
+
+    <!-- Alert Banner -->
+    <div class="alert-banner" id="alert-banner">
+      <span style="font-size:18px">⚠</span>
+      <span id="alert-msg">Attack detected</span>
+    </div>
+
+    <!-- Timeline -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Live Traffic Timeline</div>
+        <div style="font-size:9px;color:var(--muted)">OpenFlow decisions · real-time</div>
+      </div>
+      <div class="timeline-wrap">
+        <canvas id="timeline-canvas" width="800" height="120"></canvas>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--blue)"></div>Normal (allowed)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>Exploit (blocked)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--amber)"></div>Reconnaissance (blocked)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Flow Table -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Live Flow Log</div>
+        <div style="font-size:9px;color:var(--muted)">Ryu controller decisions · Mininet network</div>
+      </div>
+      <div class="table-header">
+        <div class="th">Time</div>
+        <div class="th">Source</div>
+        <div class="th">Destination</div>
+        <div class="th">Type</div>
+        <div class="th">Src Seg</div>
+        <div class="th">Dst Seg</div>
+        <div class="th">Verdict</div>
+      </div>
+      <div class="table-body" id="flow-table-body">
+        <div style="color:var(--muted);text-align:center;padding:30px 0;font-size:11px;">
+          Run attack commands in Mininet to see live flows...
+        </div>
+      </div>
+
+      <!-- Server config + controls -->
+      <div class="controls">
+        <input class="server-url" id="server-url" type="text"
+               value="http://192.168.74.139:5000"
+               placeholder="http://VM_IP:5000">
+        <button class="btn btn-primary" onclick="reconnect()">Connect</button>
+        <button class="btn btn-ghost" onclick="resetDash()">↺ Reset</button>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+let SERVER = "http://192.168.74.139:5000";
+let pollTimer = null;
+let alertCount = 0;
+let chartPoints = [];
+const MAX_CHART = 80;
+let flowCount = 0;
+let totalAllowed = 0;
+let totalBlocked = 0;
+let totalExploit = 0;
+let totalRecon = 0;
+let connected = false;
+
+// ── CANVAS ────────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('timeline-canvas');
+const ctx = canvas.getContext('2d');
+
+function drawChart() {
+  const W = canvas.offsetWidth || 800;
+  const H = 120;
+  canvas.width = W; canvas.height = H;
+  ctx.clearRect(0, 0, W, H);
+  if (chartPoints.length < 2) return;
+  const pts = chartPoints.slice(-MAX_CHART);
+  const stepW = W / (MAX_CHART - 1);
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = (H - 20) * (1 - i/4) + 10;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.font = '9px DM Mono, monospace';
+    ctx.fillText((i*25)+'%', 4, y+3);
+  }
+  pts.forEach((p, i) => {
+    const x = i * stepW;
+    const y = (H - 20) * (1 - p.conf) + 10;
+    const color = p.type === 'Exploit' ? '#EF4444' : p.type === 'Reconnaissance' ? '#F59E0B' : '#3B7DD8';
+    ctx.globalAlpha = p.action === 'ALLOW' ? 0.5 : 1.0;
+    if (p.action !== 'ALLOW') {
+      ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x-5, y-5); ctx.lineTo(x+5, y+5);
+      ctx.moveTo(x+5, y-5); ctx.lineTo(x-5, y+5);
+      ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI*2);
+      ctx.fillStyle = color; ctx.fill();
+    }
+    ctx.globalAlpha = 1.0;
+  });
+}
+
+// ── FLOW TABLE ────────────────────────────────────────────────────────────────
+const tbody = document.getElementById('flow-table-body');
+
+function addFlowRow(e) {
+  if (flowCount === 0) tbody.innerHTML = '';
+  flowCount++;
+  const isAttack = e.action === 'BLOCK';
+  const row = document.createElement('div');
+  row.className = 'flow-row' + (isAttack ? ' attack' : '');
+  const typeClass = e.type === 'Exploit' ? 'exploit' : e.type === 'Reconnaissance' ? 'recon' : 'normal';
+  const verdictClass = e.action === 'ALLOW' ? 'allow' : 'block';
+  row.innerHTML = `
+    <div class="td">${e.ts}</div>
+    <div class="td ip">${e.src_ip}</div>
+    <div class="td ip">${e.dst_ip}</div>
+    <div class="td"><span class="type-badge ${typeClass}">${e.type.slice(0,5).toUpperCase()}</span></div>
+    <div class="td">${e.src_seg}</div>
+    <div class="td">${e.dst_seg}</div>
+    <div class="td"><span class="verdict-badge ${verdictClass}">${e.action}</span></div>
+  `;
+  tbody.insertBefore(row, tbody.firstChild);
+  if (tbody.children.length > 80) tbody.removeChild(tbody.lastChild);
+}
+
+// ── ALERT LOG ─────────────────────────────────────────────────────────────────
+const alertLog = document.getElementById('alert-log');
+
+function addAlert(e) {
+  if (alertCount === 0) alertLog.innerHTML = '';
+  alertCount++;
+  document.getElementById('alert-count').textContent = alertCount + ' attack' + (alertCount > 1 ? 's' : '');
+  const entry = document.createElement('div');
+  entry.className = 'alert-entry' + (e.type === 'Reconnaissance' ? ' recon' : '');
+  const color = e.type === 'Exploit' ? 'var(--red2)' : 'var(--amber2)';
+  entry.innerHTML = `
+    <div style="color:${color};font-weight:600;font-size:10px;font-family:'DM Mono',monospace">${e.type.toUpperCase()} DETECTED · ${e.ts}</div>
+    <div style="color:var(--muted);font-family:'DM Mono',monospace;font-size:9px;margin-top:2px">${e.src_ip} → ${e.dst_ip}</div>
+    <div style="color:var(--muted);font-family:'DM Mono',monospace;font-size:9px">${e.src_seg} → ${e.dst_seg} · BLOCKED by OpenFlow</div>
+  `;
+  alertLog.insertBefore(entry, alertLog.firstChild);
+}
+
+// ── BANNER ────────────────────────────────────────────────────────────────────
+function showBanner(e) {
+  const banner = document.getElementById('alert-banner');
+  banner.className = 'alert-banner show' + (e.type === 'Reconnaissance' ? ' amber-mode' : '');
+  document.getElementById('alert-msg').textContent =
+    `${e.type} detected: ${e.src_ip} → ${e.dst_ip}, OpenFlow drop rule installed`;
+  clearTimeout(window._bt);
+  window._bt = setTimeout(() => banner.className = 'alert-banner', 3500);
+}
+
+// ── SEGMENT PULSE ─────────────────────────────────────────────────────────────
+const segAttackCounts = {seg0: 0, seg1: 0};
+
+function pulseSegment(dstIp) {
+  let segId = null;
+  if (dstIp.startsWith('10.0.0')) segId = 'seg0';
+  else if (dstIp.startsWith('10.0.1')) segId = 'seg1';
+  if (!segId) return;
+  const el = document.getElementById(segId);
+  el.classList.add('pulse');
+  setTimeout(() => el.classList.remove('pulse'), 1500);
+  segAttackCounts[segId]++;
+  const attackEl = document.getElementById(segId + '-attacks');
+  attackEl.style.display = 'block';
+  attackEl.textContent = segAttackCounts[segId] + ' attack' + (segAttackCounts[segId] > 1 ? 's' : '') + ' blocked';
+}
+
+// ── STATS ─────────────────────────────────────────────────────────────────────
+function updateStats(s) {
+  totalAllowed = s.allowed;
+  totalBlocked = s.blocked;
+  totalExploit = s.exploit;
+  totalRecon   = s.recon;
+  const total  = s.total;
+  const rate   = total > 0 ? ((s.blocked / total)*100).toFixed(1) + '%' : '0%';
+  document.getElementById('sc-total').textContent   = total;
+  document.getElementById('sc-allowed').textContent = s.allowed;
+  document.getElementById('sc-blocked').textContent = s.blocked;
+  document.getElementById('sc-rate').textContent    = rate;
+  document.getElementById('sc-exploit').textContent = s.exploit;
+  document.getElementById('sc-recon').textContent   = s.recon;
+  document.getElementById('tb-total').textContent   = total;
+  document.getElementById('tb-allowed').textContent = s.allowed;
+  document.getElementById('tb-blocked').textContent = s.blocked;
+}
+
+// ── POLLING ───────────────────────────────────────────────────────────────────
+function poll() {
+  fetch(SERVER + '/events')
+    .then(r => r.json())
+    .then(data => {
+      if (!connected) {
+        connected = true;
+        const bar = document.getElementById('conn-bar');
+        bar.className = 'conn-bar connected';
+        document.getElementById('conn-text').textContent =
+          'Connected to Ryu event server, receiving live Mininet events';
+      }
+
+      if (data.stats) updateStats(data.stats);
+
+      if (data.events && data.events.length > 0) {
+        data.events.forEach(e => {
+          chartPoints.push({ conf: e.confidence/100, type: e.type, action: e.action });
+          if (chartPoints.length > MAX_CHART*2) chartPoints.shift();
+          addFlowRow(e);
+          if (e.action === 'BLOCK') {
+            addAlert(e);
+            if (e.new) { showBanner(e); pulseSegment(e.dst_ip); }
+          }
+        });
+        drawChart();
+      }
+    })
+    .catch(err => {
+      connected = false;
+      const bar = document.getElementById('conn-bar');
+      bar.className = 'conn-bar error';
+      document.getElementById('conn-text').textContent =
+        'Cannot reach event server. Make sure python3 event_server.py is running on the VM (' + SERVER + ')';
+    });
+}
+
+function reconnect() {
+  SERVER = document.getElementById('server-url').value.trim().replace(/\/$/, '');
+  document.getElementById('conn-url').textContent = SERVER;
+  connected = false;
+  poll();
+}
+
+function resetDash() {
+  fetch(SERVER + '/reset').catch(() => {});
+  flowCount = 0; alertCount = 0;
+  chartPoints = [];
+  segAttackCounts.seg0 = 0; segAttackCounts.seg1 = 0;
+  tbody.innerHTML = '<div style="color:var(--muted);text-align:center;padding:30px 0;font-size:11px;">Run attack commands in Mininet to see live flows...</div>';
+  alertLog.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px 0;font-size:11px;">Waiting for attacks...</div>';
+  document.getElementById('alert-count').textContent = '0 attacks';
+  document.getElementById('alert-banner').className = 'alert-banner';
+  ['seg0','seg1'].forEach(id => {
+    document.getElementById(id).classList.remove('pulse');
+    const a = document.getElementById(id+'-attacks');
+    a.style.display = 'none'; a.textContent = '';
+  });
+  updateStats({total:0,allowed:0,blocked:0,exploit:0,recon:0});
+  drawChart();
+}
+
+// ── START ─────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', drawChart);
+drawChart();
+// Poll every 1 second
+poll();
+pollTimer = setInterval(poll, 1000);
+</script>
+</body>
+</html>
