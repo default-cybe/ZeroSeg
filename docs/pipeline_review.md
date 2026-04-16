@@ -88,3 +88,87 @@ Saved filtered_testing.csv:  (51628, 44)
 
 ## The Problem With the Alternative Pipeline: PCA Kills Interpretability
 
+The other pipeline runs PCA before both DBSCAN and XGBoost, squeezing the features down to 24 principal components. For this project specifically, that's a problem.
+
+Our proposal names this deliverable outright:
+
+> "Produce a feature importance analysis identifying which of the 49 UNSW-NB15 features are most predictive of lateral movement, providing interpretability for the model decisions."
+
+Once you PCA-transform the data, those 24 components are linear blends of every original feature. You can't say "sttl is the strongest signal for detecting Exploits" anymore. All you can say is "PC7 is important," which means nothing to a network security operator.
+
+Here's our feature importance result without PCA:
+
+```
+sttl              0.7338   <- source TTL alone is 73% of model signal
+dbytes            0.0361   <- destination bytes
+ct_srv_dst        0.0322   <- connection frequency to same service+dst
+smean             0.0309   <- mean source packet size
+dmean             0.0269   <- mean destination packet size
+...
+```
+
+That's actionable. A security team can look at it and understand that TTL values are the strongest indicator of attack traffic, because tools like Nmap produce different TTL signatures than normal OS traffic. PCA throws all of that away.
+
+And XGBoost doesn't even need PCA. The code comment justifies it with "DBSCAN uses Euclidean distance which degrades in high dimensions." Sure, that's a reasonable argument for DBSCAN with 35+ features. But PCA also gets applied before XGBoost, and there it's pointless: tree models handle high dimensionality natively and never touch Euclidean distance. They split on individual features, so the curse of dimensionality doesn't bite them.
+
+Our answer to DBSCAN's dimensionality concern isn't PCA. Instead we:
+
+1. Use only 12 domain-relevant features rather than 35+
+2. Add sttl and dttl, which sharpen cluster separation a lot
+3. Tune eps automatically so it adapts to the feature space
+
+The payoff: silhouette 0.51 with interpretable features, versus 0.33 with PCA components.
+
+## What We Actually Use XGBoost For in Feature Selection
+
+To be clear, we're not training the final XGBoost classifier in Phase 1. That comes later, in Phase 2, with SMOTE, hyperparameter tuning, and a proper train/test split.
+
+What we did here was borrow XGBoost for one narrow question: out of these 35 features, which ones actually help separate Normal from Exploits from Reconnaissance?
+
+Why importance instead of correlation filtering? The alternative pipeline leans on correlation-based selection, dropping features that correlate heavily with each other. That's genuinely useful, and we do it too as Step 2, but it only tells you which features are redundant. It says nothing about which features are useful for classification. Two features can be totally uncorrelated and both useless for spotting attacks; two correlated features might both be critical signals.
+
+XGBoost importance measures the thing we care about directly: what helps classify attacks. Trained on all 35 features, it reported:
+
+- sttl alone carries 73.4% of the classification signal
+- the top 14 features cover 95.3% of total importance
+- the remaining 21 features add up to just 4.7%, basically noise
+
+We checked it: 14 features give identical F1 scores to all 35 (Exploits 0.932, Normal 0.986, Recon 0.818). So we drop 21 features at zero performance cost. This is the feature selection method the proposal describes, and it hands us the interpretable importance analysis we committed to.
+
+## Updated Pipeline Results
+
+### Preprocessing
+- Frequency encoding (not LabelEncoder)
+- Both train and test processed
+- inf handling, ct_ftp_cmd cleanup, median fill
+
+### DBSCAN Segmentation
+| Metric | Old | Updated |
+|--------|-----|---------|
+| Features | 10 (manual) | 12 (domain-informed, includes sttl/dttl/state) |
+| eps selection | Hardcoded 0.3 | Automated (k-distance + grid search + silhouette) |
+| eps value | 0.3 | 0.3003 (auto-selected) |
+| Clusters | 64 | 29 |
+| Noise | 14.8% | 14.4% |
+| Silhouette | 0.15 | 0.51 |
+| Pure clusters (>80% one class) | unknown | 23/29 (79%) |
+
+### Feature Selection
+| Metric | Result |
+|--------|--------|
+| Starting features | 42 |
+| After correlation removal | 35 |
+| After XGBoost importance | 14 (95.3% cumulative importance) |
+| Performance vs all 35 | Identical F1 scores |
+| Top feature | sttl (73.4% importance) |
+
+## What's Next (Phase 2)
+
+All three scripts are finalized and produce consistent outputs. Phase 2 breaks down like this:
+
+1. XGBoost classifier training (teammate): train on the 14 selected features with SMOTE oversampling. Target F1 > 0.85 per class.
+2. Mininet topology (Kaivalya): build the virtual network with OpenFlow switches mapped to DBSCAN segments.
+3. OpenFlow enforcement (teammate): deny-by-default policy that uses XGBoost output to block cross-segment Exploit/Recon traffic.
+4. Integration (all of us): wire the full pipeline together and test end-to-end.
+
+Deadline: April 8, 2026.
