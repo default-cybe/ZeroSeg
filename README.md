@@ -33,3 +33,50 @@ For the end-to-end enforcement test I replayed a 500-flow attack sequence: 93.4%
 Plots and reports live in [`results/`](results/): confusion matrix, ROC curves, the DBSCAN segment visualization, feature importance, and a live attack timeline.
 
 ## Repo layout
+
+```
+src/        pipeline + controller + live-demo scripts
+docs/       full project log, pipeline review, slides
+results/    metrics, plots, classification report
+dashboard/  static + live HTML dashboards (event_server.py feeds the live one)
+```
+
+## Running it
+
+1. **Data.** Grab the [UNSW-NB15 dataset](https://research.unsw.edu.au/projects/unsw-nb15-dataset) (`UNSW_NB15_training-set.csv`, `UNSW_NB15_testing-set.csv`) and drop the files into `src/`. The datasets aren't committed since they're about 117 MB.
+2. **ML pipeline** (any Linux/macOS/WSL2 box):
+   ```bash
+   pip install -r requirements.txt
+   cd src
+   python preprocess.py
+   python feature_selection.py
+   python dbscan_segmentation.py
+   python train_xgboost.py
+   python integration.py
+   ```
+3. **Network enforcement demo** (Mininet VM, Ubuntu 20.04):
+   ```bash
+   sudo pip3 install eventlet==0.30.2   # Ryu is incompatible with newer eventlet
+   ryu-manager ryu_controller.py &
+   sudo python3 mininet_topology.py
+   ```
+   For the live dashboard, run `event_server.py` next to `ryu_controller_live.py`, open `dashboard/zeroseg_dashboard_live.html`, and drive traffic with `attack_demo.py` from inside Mininet.
+
+## Design decisions
+
+A few calls worth explaining:
+
+- **XGBoost over Isolation Forest.** The data is labeled, so a supervised model just wins. I also narrowed the scope to Exploits and Recon (the lateral-movement kill chain: scan, then pivot) after it became clear that general anomaly detection was a rabbit hole.
+- **DBSCAN over K-Means.** I didn't want to pin down a segment count up front. Picking eps automatically from the k-distance elbow plus silhouette scoring surfaced 29 natural segments on its own.
+- **Frequency encoding** for `proto`, `state`, and `service`. It keeps the frequency signal without the fake ordering that label encoding sneaks in, and it plays nicely with both a distance-based model (DBSCAN) and a tree-based one (XGBoost).
+- **SMOTE.** Recon only had about 10k samples against 56k Normal, and without rebalancing the model basically ignores the minority class.
+
+## Known limitations
+
+- `sttl` carries 73.4% of the feature importance (it's really picking up OS-default TTL signatures), so this may not carry over to networks with a different OS mix than UNSW-NB15.
+- The enforcement pipeline replays dataset flows. A real deployment would tap live traffic off a mirror port and pull the flow features online.
+- The topology uses a static IP-to-segment mapping. In production you'd want dynamic host discovery instead.
+
+## Credits
+
+Built as a small team project. My part was preprocessing, feature selection, the integration pipeline, and the live dashboard; the DBSCAN segmentation, XGBoost training, Mininet topology, and Ryu controller were worked on together.

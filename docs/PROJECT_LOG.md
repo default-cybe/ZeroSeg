@@ -183,3 +183,110 @@ Segment 2 (Attacker): h5=10.0.2.1, h6=10.0.2.2  → switch s3 → core s0
 | h5 → h3 (cross segment, Recon) | 100% dropped: BLOCKED |
 | h5 nmap scan of 10.0.0.0/24 | 0 hosts up: BLOCKED |
 | h5 ping to h1 (Exploit attempt) | 100% loss: BLOCKED |
+
+**Ryu fix required:** eventlet version conflict on Mininet VM. Fixed with:
+```bash
+sudo pip3 install eventlet==0.30.2
+```
+
+---
+
+### Step 6: Ryu OpenFlow Controller (`ryu_controller.py`)
+**Completed:** April 8, 2026 | **Owner:** Teammate
+
+- OpenFlow 1.3 on all switches
+- Table-miss rule: send unknown packets to controller
+- Policy engine: ALLOW intra-segment, BLOCK cross-segment from attacker
+- XGBoost-flagged flows: priority 20 drop rule (overrides whitelist)
+
+**Priority levels:**
+| Priority | Rule |
+|----------|------|
+| 0 | Table-miss: send to controller |
+| 1 | Learned flows: forward |
+| 10 | Policy block: drop cross-segment |
+| 20 | XGBoost block: drop attack flow |
+
+---
+
+### Step 7: Integration Pipeline (`integration.py`)
+**Completed:** April 8, 2026 | **Owner:** Kaivalya
+
+Simulated 500-flow traffic stream from `filtered_testing.csv` with realistic attack sequence: 30% normal → 20% Recon scan → 20% normal → 20% Exploit attempts → 10% normal.
+
+**Results:**
+| Metric | Value |
+|--------|-------|
+| Total flows | 500 |
+| Flows allowed | 296 |
+| Exploits blocked | 4 unique flows |
+| Recon blocked | 3 unique flows |
+| Unique flows blocked | 7 |
+| Overall accuracy | 93.40% |
+| Normal accuracy | 97.67% |
+| Exploits accuracy | 93.00% |
+| Reconnaissance accuracy | 81.00% |
+
+**Outputs:** `integration_log.csv`, `attack_timeline.png`
+
+---
+
+## File Reference
+
+| File | Description | Status |
+|------|-------------|--------|
+| `preprocess.py` | Filter, encode, clean dataset | Done |
+| `filtered_training.csv` | 99,884 × 44 training data | Done |
+| `filtered_testing.csv` | 51,628 × 44 test data | Done |
+| `feature_selection.py` | Select top 14 features | Done |
+| `feature_matrix.csv` | 99,884 × 16 feature matrix | Done |
+| `feature_importance.png` | XGBoost feature importance chart | Done |
+| `dbscan_segmentation.py` | DBSCAN with auto eps | Done |
+| `segmented_data.csv` | Training data with segment labels | Done |
+| `dbscan_segments.png` | PCA visualization | Done |
+| `k_distance_graph.png` | k-distance elbow for eps tuning | Done |
+| `train_xgboost.py` | Train + evaluate XGBoost | Done |
+| `xgboost_model.json` | Saved model weights | Done |
+| `confusion_matrix.png` | Test set confusion matrix | Done |
+| `roc_curves.png` | ROC curves per class | Done |
+| `classification_report.txt` | F1/precision/recall per class | Done |
+| `results_summary.csv` | Per-class metrics | Done |
+| `mininet_topology.py` | 6-host 3-segment Mininet network | Done |
+| `ryu_controller.py` | OpenFlow deny-by-default controller | Done |
+| `integration.py` | XGBoost to OpenFlow bridge | Done |
+| `integration_log.csv` | Per-flow enforcement decisions | Done |
+| `attack_timeline.png` | Timeline plot of detections | Done |
+
+---
+
+## Key Decisions Log
+
+| Date | Decision | Reason |
+|------|----------|--------|
+| Feb 2026 | Narrowed to Exploits + Recon only | Feedback: general anomaly detection too hard |
+| Feb 2026 | DBSCAN over K-Means | No need to specify k; discovers natural segments |
+| Feb 2026 | XGBoost over Isolation Forest | Labeled data makes supervised more accurate |
+| Mar 2026 | Frequency encoding for categoricals | Preserves frequency signal; better than label encoding |
+| Mar 2026 | Auto eps for DBSCAN | Principled selection vs arbitrary manual tuning |
+| Mar 2026 | SMOTE for class imbalance | 10k vs 56k samples; model ignores minority without balancing |
+| Apr 2026 | VMware Mininet VM over WSL2 | VMware OVF image is pre-configured, cleaner environment |
+| Apr 2026 | eventlet==0.30.2 pin | Ryu incompatible with newer eventlet versions |
+
+---
+
+## Known Issues and Notes
+
+- `sttl` dominates at 73.4%, so it may not generalize to networks with different OS distributions than UNSW-NB15
+- Reconnaissance simulation accuracy (81%) is lower than test F1 (0.85), due to IP assignment logic in the simulation rather than model weakness
+- Integration pipeline is currently a simulation; real deployment would tap live traffic via a network tap or mirror port
+- Mininet topology uses static IP segments for simplicity; real deployment would use dynamic host discovery
+
+---
+
+## Phase 3: Remaining Work (Apr 8 to Apr 29)
+
+| Task | Owner | Deadline |
+|------|-------|----------|
+| Real-time dashboard connecting to pipeline | Kaivalya | Apr 18 |
+| Full attack simulation demo for presentation | All | Apr 22 |
+| Final write-up: system design, evaluation, limitations | All | Apr 29 |
